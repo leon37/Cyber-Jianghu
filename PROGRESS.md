@@ -272,16 +272,108 @@ MemoryStore.StoreDecision()  ← 存储决策
 
 ---
 
-## Phase 4: 本地 AIGC ⏸️ 待开始
+## Phase 4: 本地 AIGC ✅ 已完成
+
+### 已完成任务
+- [x] ComfyUI API 客户端 (`internal/generators/comfyui_client.go`)
+  - [x] 连接到本地 ComfyUI 服务
+  - [x] SDXL Turbo 工作流构建
+  - [x] 异步任务处理
+  - [x] 轮询生成结果
+  - [x] 队列状态查询
+- [x] LoRA 模型管理 (`internal/generators/lora_manager.go`)
+  - [x] 模型注册和加载
+  - [x] 模型元数据管理
+  - [x] 动态模型切换
+  - [x] 人物模型支持
+- [x] 图像缓存机制 (`internal/generators/image_cache.go`)
+  - [x] 生成历史缓存
+  - [x] 按提示词匹配缓存
+  - [x] 缓存过期策略
+  - [x] 缓存命中率统计
+  - [x] LRU 淘汰策略
 
 ### 待完成任务
 - [ ] ComfyUI 本地部署文档
-- [ ] SDXL Turbo 模型配置
-- [ ] ComfyUI API 客户端 (`internal/generators/comfyui_client.go`)
-- [ ] 图像生成工作流创建
-- [ ] LoRA 模型管理实现
-- [ ] 图像缓存机制
-- [ ] 显存优化
+- [ ] SDXL Turbo 模型配置指南
+- [ ] 显存优化（动态 Batch Size）
+- [ ] 图像生成 API 端点集成
+
+### 已创建文件
+```
+server/internal/
+└── generators/
+    ├── comfyui_client.go           # ComfyUI API 客户端
+    ├── lora_manager.go            # LoRA 模型管理
+    └── image_cache.go             # 图像缓存机制
+```
+
+### 核心数据结构
+
+**GenerateOptions** - 图像生成选项
+```go
+type GenerateOptions struct {
+    Prompt        string   // 提示词
+    NegativePrompt string   // 负面提示词
+    Width         int      // 图像宽度
+    Height        int      // 图像高度
+    Steps         int      // 推理步数
+    CFGScale      float64  // CFG scale
+    Seed          int      // 随机种子
+    Model         string   // 模型名称
+    Lora          string   // LoRA 模型
+    LoraStrength  float64  // LoRA 强度
+    SamplerName   string   // 采样器
+    Scheduler     string   // 调度器
+}
+```
+
+**CacheEntry** - 缓存条目
+```go
+type CacheEntry struct {
+    Key           string                 // 缓存键（MD5）
+    FilePath      string                 // 文件路径
+    Prompt        string                 // 原始提示词
+    Options       *GenerateOptions        // 生成选项
+    CreatedAt     time.Time              // 创建时间
+    LastAccessed  time.Time              // 最后访问时间
+    AccessCount   int                    // 访问次数
+    Hits         int                    // 命中次数
+    Metadata      map[string]interface{} // 元数据
+}
+```
+
+### 工作流程
+
+```
+1. 收到图像生成请求（带 Prompt 和 Options）
+    ↓
+2. 生成缓存键（MD5 of Prompt + Options）
+    ↓
+3. 检查缓存
+    ├─ 命中 → 返回缓存的图像
+    └─ 未命中 → 继续
+    ↓
+4. 构建 ComfyUI 工作流
+    ↓
+5. 提交到 ComfyUI 队列
+    ↓
+6. 轮询生成结果
+    ↓
+7. 获取生成的图像
+    ↓
+8. 存储到缓存
+    ↓
+9. 返回图像数据
+```
+
+### 缓存策略
+
+- **键生成**: MD5(Prompt + Width + Height + Steps + CFG + Model + LoRA)
+- **过期时间**: 24 小时（可配置）
+- **淘汰策略**: LRU（最近最少使用）
+- **最大条目数**: 1000 条（可配置）
+- **命中率统计**: 实时追踪
 
 ---
 
