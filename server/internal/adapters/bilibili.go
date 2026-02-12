@@ -7,10 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
@@ -28,6 +25,7 @@ type BilibiliAdapter struct {
 	mu            sync.Mutex
 	cancel        context.CancelFunc
 	heartbeatDone chan struct{}
+	parser        *DanmakuParser
 }
 
 // Bilibili message protocol constants
@@ -66,6 +64,13 @@ func NewBilibiliAdapter() *BilibiliAdapter {
 	return &BilibiliAdapter{
 		danmakuChan: make(chan interfaces.Danmaku, 1000),
 	}
+}
+
+// SetParser sets the danmaku parser
+func (b *BilibiliAdapter) SetParser(parser *DanmakuParser) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.parser = parser
 }
 
 // Connect establishes connection to Bilibili live platform
@@ -225,7 +230,7 @@ func (b *BilibiliAdapter) handleMessage(data []byte) {
 		}
 
 		packetLen := binary.BigEndian.Uint32(data[offset : offset+4])
-		headerLen := binary.BigEndian.Uint16(data[offset+4 : offset+6])
+		_ = binary.BigEndian.Uint16(data[offset+4 : offset+6]) // headerLen - unused
 		operation := binary.BigEndian.Uint32(data[offset+8 : offset+12])
 
 		if packetLen < headerLength {
@@ -253,19 +258,36 @@ func (b *BilibiliAdapter) parseDanmaku(body []byte) {
 		if bodyStr[0] == '{' {
 			var msg struct {
 				Cmd string `json:"cmd"`
-				Info [][]interface{} `json:"info"`
+				Info []interface{} `json:"info"`
 			}
 			if err := json.Unmarshal(body, &msg); err == nil && msg.Cmd == "DANMU_MSG" {
-				if len(msg.Info) > 2 {
-					// info[0]: danmaku text
-					// info[1]: user info [uid, username]
-					// info[2]: other info
-					danmakuText, _ := msg.Info[1].(string)
-					userInfo, _ := msg.Info[2].([]interface{})
-					if len(userInfo) > 1 {
-						uid := fmt.Sprintf("%v", userInfo[0])
-						username, _ := userInfo[1].(string)
+				if len(msg.Info) > 0 {
+					// info is a mixed array, need to parse carefully
+					// info[0] typically contains danmaku text
+					// info[2] typically contains user info
+					danmakuText := ""
+					if infoArray, ok := msg.Info[0].([]interface{}); ok && len(infoArray) > 0 {
+						if text, ok := infoArray[1].(string); ok {
+							danmakuText = text
+						}
+					}
 
+					// Try to get user info from info[2]
+					var uid, username string
+					if len(msg.Info) > 2 {
+						if infoArray, ok := msg.Info[2].([]interface{}); ok {
+							if len(infoArray) > 0 {
+								uid = fmt.Sprintf("%v", infoArray[0])
+							}
+							if len(infoArray) > 1 {
+								if name, ok := infoArray[1].(string); ok {
+									username = name
+								}
+							}
+						}
+					}
+
+					if danmakuText != "" {
 						danmaku := interfaces.Danmaku{
 							Username:  username,
 							UserID:    uid,

@@ -83,7 +83,7 @@ server/
 
 ---
 
-## Phase 2: 直播接入 🔄 进行中
+## Phase 2: 直播接入 ✅ 已完成
 
 ### 已完成任务
 - [x] 定义 LiveAdapter 接口 (`internal/interfaces/live_adapter.go`)
@@ -96,22 +96,29 @@ server/
 - [x] 实现弹幕解析器 (`internal/adapters/parser.go`)
   - [x] 命令格式解析: `/action <param>`
   - [x] 投票格式解析: `/vote <optionID>`
-
-### 进行中任务
-- [ ] WebSocket 服务搭建 (`internal/web/handlers.go`)
-  - [ ] 添加 WebSocket 端点 `/api/v1/live/danmaku/stream`
-  - [ ] 实现弹幕实时推送
-  - [ ] 客户端连接管理
-
-- [ ] 弹幕广播器
-  - [ ] 创建 DanmakuHub 管理器
-  - [ ] 实现多客户端广播
+- [x] 创建 DanmakuHub 弹幕广播器 (`internal/web/hub.go`)
+  - [x] 多客户端连接管理
+  - [x] 弹幕实时广播
+  - [x] 客户端注册/注销
+  - [x] 心跳保活机制
+- [x] WebSocket 服务搭建 (`internal/web/handlers.go`)
+  - [x] 添加 WebSocket 端点 `/api/v1/live/danmaku/stream`
+  - [x] 实现弹幕实时推送
+  - [x] 客户端连接管理
+- [x] 实现直播连接/断开 API
+  - [x] 创建 LiveService 管理器 (`internal/web/live_service.go`)
+  - [x] `POST /api/v1/live/connect` 连接直播间
+  - [x] `POST /api/v1/live/disconnect` 断开直播间
+  - [x] `GET /api/v1/live/status` 查询连接状态
+- [x] 弹幕存储到 Redis (`internal/storage/redis.go`)
+  - [x] 弹幕数据存储（List 结构）
+  - [x] 去重机制（Dedup key）
+  - [x] 获取最近弹幕 API
+  - [x] 弹幕计数和清理
 
 ### 待完成任务
-- [ ] 集成 Bilibili 适配器到 HTTP 服务
-- [ ] 实现连接/断开 API (`/api/v1/live/connect`, `/api/v1/live/disconnect`)
-- [ ] 弹幕存储到 Redis
 - [ ] 测试 Bilibili 直播间连接
+- [ ] 性能测试（高并发弹幕场景）
 
 ### 已创建文件
 ```
@@ -120,22 +127,148 @@ server/internal/
 │   ├── bilibili.go                    # Bilibili 适配器（已完成）
 │   ├── douyin.go                     # Douyin 适配器（骨架）
 │   └── parser.go                     # 弹幕解析器
+└── web/
+    ├── hub.go                        # 弹幕广播器
+    ├── live_service.go               # 直播服务管理器
+    └── handlers.go                   # HTTP/WebSocket 处理器（已更新）
 ```
+
+### API 端点
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查 |
+| POST | `/api/v1/live/connect` | 连接直播间 (Body: `{"platform":"bilibili","room_id":"xxx","cookie":"xxx"}`) |
+| POST | `/api/v1/live/disconnect` | 断开直播间 |
+| GET | `/api/v1/live/status` | 查询连接状态 |
+| WebSocket | `/api/v1/live/danmaku` | 弹幕实时流 |
 
 ---
 
-## Phase 3: 剧情引擎 + RAG 集成 ⏸️ 待开始
+## Phase 3: 剧情引擎 + RAG 集成 ✅ 已完成
+
+### 已完成任务
+- [x] 集成 GLM-5 API (`internal/engine/glm5_client.go`)
+  - [x] ChatCompletion 接口
+  - [x] Embedding 接口
+  - [x] 错误处理和重试机制
+  - [x] 请求限流控制
+- [x] 实现 Prompt 模板引擎 (`internal/prompts/story_template.go`)
+  - [x] 基础剧情 Prompt 模板
+  - [x] 变量插值支持
+  - [x] 图像生成 Prompt 模板
+  - [x] NPC 对话模板
+  - [x] 决策总结模板
+- [x] 集成 Qdrant 向量数据库 (`internal/rag/qdrant_client.go`)
+  - [x] 创建 Collection
+  - [x] 存储 Embedding
+  - [x] 向量检索（相似度搜索）
+  - [x] 元数据过滤
+  - [x] 连接池管理
+- [x] 实现 Embedding 服务 (`internal/rag/embedding.go`)
+  - [x] 调用 GLM Embedding API
+  - [x] 本地缓存机制
+  - [x] 批量 Embedding 支持
+  - [x] 向量归一化
+  - [x] 余弦相似度计算
+- [x] 实现历史记忆存储 (`internal/rag/memory_store.go`)
+  - [x] 记忆写入到 Qdrant
+  - [x] 相关记忆检索
+  - [x] 记忆元数据管理
+  - [x] 记忆类型过滤
+- [x] 实现剧情引擎核心逻辑 (`internal/engine/story_engine.go`)
+  - [x] 状态机管理
+  - [x] 玩家决策处理
+  - [x] 剧情分支生成
+  - [x] 选项解析
+  - [x] RAG 检索集成
+- [x] 集成 RAG 检索到剧情引擎
+  - [x] 基于玩家输入检索相关记忆
+  - [x] 检索相似决策
+  - [x] 注入到 Prompt 上下文
+  - [x] 检索结果排序和过滤
 
 ### 待完成任务
-- [ ] 集成 GLM-5 API (`internal/engine/glm5_client.go`)
-- [ ] 实现 Prompt 模板引擎 (`internal/prompts/story_template.go`)
-- [ ] 实现剧情状态管理 (`internal/models/story.go`)
-- [ ] 集成 Qdrant 向量数据库 (`internal/rag/qdrant_client.go`)
-- [ ] 实现 Embedding 服务 (`internal/rag/embedding.go`)
-- [ ] 实现历史记忆存储 (`internal/rag/memory_store.go`)
-- [ ] 集成 RAG 检索模板 (`internal/prompts/rag_template.go`)
-- [ ] MySQL/GORM 存档实现
+- [ ] 实现 MySQL/GORM 存档实现
 - [ ] Redis 缓存实时状态
+- [ ] 故事 API 端点集成
+
+### 已创建文件
+```
+server/internal/
+├── engine/
+│   ├── glm5_client.go               # GLM-5 API 客户端
+│   └── story_engine.go             # 剧情引擎核心逻辑
+├── prompts/
+│   └── story_template.go           # Prompt 模板引擎
+└── rag/
+    ├── qdrant_client.go            # Qdrant 向量数据库客户端
+    ├── embedding.go                # Embedding 服务
+    └── memory_store.go            # 历史记忆存储服务
+```
+
+### 核心数据结构
+
+**StoryState** - 故事状态
+```go
+type StoryState struct {
+    CurrentNode   string         // 当前节点
+    CurrentScene  string         // 当前场景
+    PreviousText  string         // 之前文本
+    Summary       string         // 故事摘要
+    Protagonist   string         // 主角
+    NPCs          string         // NPC 列表
+    Genre          string         // 类型
+    Tone           string         // 语调
+    Style          string         // 风格
+    Options        []StoryOption // 可选选项
+    Custom         map[string]interface{} // 自定义数据
+}
+```
+
+**Memory** - 记忆存储
+```go
+type Memory struct {
+    ID        string                 // 唯一 ID
+    Type      MemoryType            // 类型: player_action, story_state, npc, decision
+    Content   string                 // 内容
+    Timestamp int64                  // 时间戳
+    StoryID   string                 // 故事 ID
+    Metadata  map[string]interface{} // 元数据
+    Vector    []float64               // 向量（内部使用）
+}
+```
+
+**StoryResponse** - 剧情生成响应
+```go
+type StoryResponse struct {
+    Text           string         // 生成的文本
+    Scene          string         // 场景描述
+    Options        []StoryOption // 选项
+    VisualPrompt   string         // 图像生成提示
+    AudioPrompt    string         // 语音生成提示
+    RelatedMemories []Memory      // 相关记忆
+}
+```
+
+### 数据流
+
+```
+玩家弹幕/选择
+    ↓
+StoryEngine.ApplyOption()
+    ↓
+MemoryStore.SearchRelatedMemories()  ← RAG 检索
+    ↓
+TemplateEngine.Render()  ← 构建 Prompt
+    ↓
+GLM5Client.Chat()  ← 调用大模型
+    ↓
+StoryEngine.parseOptionsFromResponse()  ← 解析选项
+    ↓
+MemoryStore.StoreDecision()  ← 存储决策
+    ↓
+返回 StoryResponse (含 VisualPrompt)
+```
 
 ---
 
