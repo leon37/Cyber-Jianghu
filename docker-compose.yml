@@ -9,7 +9,8 @@ services:
     ports:
       - "8188:8188"
     volumes:
-      - comfyui_models:/models
+      # Mount local models directory instead of using Docker volume
+      - /d/ComfyUI/models:/models
       - comfyui_output:/output
       - comfyui_input:/input
     environment:

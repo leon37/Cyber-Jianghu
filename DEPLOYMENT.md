@@ -97,15 +97,20 @@ comfyui:
 
 ## SDXL Turbo 模型配置
 
-### 下载模型
-ComfyUI 容器启动后，需要下载 SDXL Turbo 模型：
+### 下载模型（可选，已存在本地模型可跳过）
+
+ComfyUI 容器会自动使用本地模型目录，如果已有模型可跳过下载：
+
+**本地模型路径**：`D:\ComfyUI\models`
+
+如果需要下载新模型：
 
 1. 访问 ComfyUI Web UI: http://localhost:8188
 2. 进入 "Model Manager" 页面
-3. 下载 SDXL Turbo 模型：
-   - 推荐：`sd_xl_turbo_1.0_fp16.safetensors`
-   - 源地址：CivitAI 或 HuggingFace
-4. 将模型文件放入 `models` 目录
+3. 下载模型文件到 `D:\ComfyUI\models` 目录
+4. 重启 ComfyUI 容器以加载新模型
+
+**注意**：Docker 配置已设置为挂载本地 `D:\ComfyUI\models` 目录，容器会直接使用已有模型
 
 ### 工作流配置
 
