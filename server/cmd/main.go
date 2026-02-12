@@ -14,6 +14,7 @@ import (
 	"Cyber-Jianghu/server/internal/config"
 	"Cyber-Jianghu/server/internal/engine"
 	"Cyber-Jianghu/server/internal/generators"
+	"Cyber-Jianghu/server/internal/infra"
 	"Cyber-Jianghu/server/internal/rag"
 	"Cyber-Jianghu/server/internal/storage"
 	"Cyber-Jianghu/server/internal/web"
@@ -105,8 +106,18 @@ func main() {
 	loraRegistry := generators.NewLoRARegistry(loraDir)
 	_ = loraRegistry.LoadModels(context.Background())
 
+	// Initialize ComfyUI Manager
+	var comfyuiManager *infra.ComfyUIManager
+	comfyuiCfg := &infra.ComfyUIManagerConfig{
+		Host:     "127.0.0.1",
+		Port:     8188,
+		ModelsDir: "D:\\ComfyUI",
+		UseGPU:   true,
+	}
+	comfyuiManager = infra.NewComfyUIManager(comfyuiCfg)
+
 	// Create router with story engine integration
-	r := web.NewRouter(cfg, storyEngine, redisStore)
+	r := web.NewRouter(cfg, storyEngine, redisStore, comfyuiManager)
 
 	// Create HTTP server
 	server := &http.Server{

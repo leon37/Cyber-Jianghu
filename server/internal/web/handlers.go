@@ -1,9 +1,11 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"Cyber-Jianghu/server/internal/config"
 	"Cyber-Jianghu/server/internal/engine"
 	"Cyber-Jianghu/server/internal/generators"
+	"Cyber-Jianghu/server/internal/infra"
 	"Cyber-Jianghu/server/internal/storage"
 )
 
@@ -29,18 +32,20 @@ var upgrader = websocket.Upgrader{
 }
 
 type Handlers struct {
-	config      *config.Config
-	hub         *DanmakuHub
-	liveService *LiveService
-	redisStore  *storage.RedisStore
+	config         *config.Config
+	hub            *DanmakuHub
+	liveService    *LiveService
+	redisStore     *storage.RedisStore
+	comfyuiManager *infra.ComfyUIManager
 }
 
-func NewHandlers(cfg *config.Config, hub *DanmakuHub, redisStore *storage.RedisStore) *Handlers {
+func NewHandlers(cfg *config.Config, hub *DanmakuHub, redisStore *storage.RedisStore, comfyuiManager *infra.ComfyUIManager) *Handlers {
 	return &Handlers{
-		config:      cfg,
-		hub:         hub,
-		liveService: nil,
-		redisStore:  redisStore,
+		config:         cfg,
+		hub:            hub,
+		liveService:    nil,
+		redisStore:     redisStore,
+		comfyuiManager: comfyuiManager,
 	}
 }
 
@@ -82,7 +87,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func NewRouter(cfg *config.Config, storyEngine interface{}, redis interface{}) *chi.Mux {
+func NewRouter(cfg *config.Config, storyEngine interface{}, redis interface{}, comfyuiManager *infra.ComfyUIManager) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Request logging middleware
@@ -101,7 +106,7 @@ func NewRouter(cfg *config.Config, storyEngine interface{}, redis interface{}) *
 	if redis != nil {
 		redisStore = redis.(*storage.RedisStore)
 	}
-	handlers := NewHandlers(cfg, nil, redisStore)
+	handlers := NewHandlers(cfg, nil, redisStore, comfyuiManager)
 
 	// Type assertion for story engine
 	var storyHandlers *StoryHandlers
@@ -174,6 +179,14 @@ func NewRouter(cfg *config.Config, storyEngine interface{}, redis interface{}) *
 		r.Route("/voice", func(r chi.Router) {
 			r.Get("/", handlers.GetVoices)
 			r.Post("/{id}/set-default", handlers.SetDefaultVoice)
+		})
+
+		// ComfyUI Management endpoints
+		r.Route("/comfyui", func(r chi.Router) {
+			r.Get("/status", handlers.GetComfyUIStatus)
+			r.Post("/start", handlers.StartComfyUI)
+			r.Post("/stop", handlers.StopComfyUI)
+			r.Post("/restart", handlers.RestartComfyUI)
 		})
 	})
 
@@ -349,4 +362,141 @@ type LiveStatus struct {
 	Platform  string `json:"platform,omitempty"`
 	RoomID    string `json:"room_id,omitempty"`
 	ClientCount int    `json:"client_count"`
+}
+
+// ComfyUI Status Response
+type ComfyUIStatusResponse struct {
+	Status string `json:"status"`
+	URL    string `json:"url,omitempty"`
+}
+
+// GetComfyUIStatus returns the current status of ComfyUI
+func (h *Handlers) GetComfyUIStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.comfyuiManager == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ComfyUI manager not initialized"})
+		return
+	}
+
+	status := string(h.comfyuiManager.GetStatus())
+	response := ComfyUIStatusResponse{
+		Status: status,
+	}
+
+	if h.comfyuiManager.IsReady() {
+		response.URL = h.comfyuiManager.GetURL()
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// StartComfyUI starts the ComfyUI service
+func (h *Handlers) StartComfyUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.comfyuiManager == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ComfyUI manager not initialized"})
+		return
+	}
+
+	// Check if already running
+	if h.comfyuiManager.IsReady() {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "ComfyUI is already running",
+			"status":  "running",
+			"url":     h.comfyuiManager.GetURL(),
+		})
+		return
+	}
+
+	// Start ComfyUI
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := h.comfyuiManager.Start(ctx); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Failed to start ComfyUI: %v", err),
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "ComfyUI is starting...",
+		"status":  "starting",
+	})
+}
+
+// StopComfyUI stops the ComfyUI service
+func (h *Handlers) StopComfyUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.comfyuiManager == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ComfyUI manager not initialized"})
+		return
+	}
+
+	// Check if already stopped
+	if h.comfyuiManager.GetStatus() == infra.ComfyUIStatusStopped {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "ComfyUI is already stopped",
+			"status":  "stopped",
+		})
+		return
+	}
+
+	// Stop ComfyUI
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := h.comfyuiManager.Stop(ctx); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Failed to stop ComfyUI: %v", err),
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "ComfyUI stopped successfully",
+		"status":  "stopped",
+	})
+}
+
+// RestartComfyUI restarts the ComfyUI service
+func (h *Handlers) RestartComfyUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.comfyuiManager == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ComfyUI manager not initialized"})
+		return
+	}
+
+	// Restart ComfyUI
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+
+	if err := h.comfyuiManager.Restart(ctx); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Failed to restart ComfyUI: %v", err),
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "ComfyUI is restarting...",
+		"status":  "starting",
+	})
 }
