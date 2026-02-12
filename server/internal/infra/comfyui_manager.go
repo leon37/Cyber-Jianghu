@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -94,21 +95,13 @@ func (m *ComfyUIManager) Start(ctx context.Context) error {
 	}
 
 	// Prepare command
-	// Using conda run to activate environment and start ComfyUI
-	// Alternative: Use conda env to run python directly with proper paths
-	cmd := &exec.Cmd{
-		Path: pythonExePath,
-		Args: []string{
-			"-m",                  // run as module
-			"comfyui",            // module name
-			"main.py",             // main script
-			"--listen", comfyuiHost,
-			"--port", fmt.Sprintf("%d", comfyuiPort),
-			// Note: Do NOT use --lowvram to maximize GPU performance
-		},
-		// Set working directory to ComfyUI root to ensure model paths are correct
-		Dir: comfyuiRootDir,
-	}
+	// Directly execute main.py with conda python interpreter
+	cmd := exec.Command(pythonExePath, "main.py", "--listen", comfyuiHost, "--port", fmt.Sprintf("%d", comfyuiPort))
+	// Set working directory to ComfyUI root to ensure model paths are correct
+	cmd.Dir = comfyuiRootDir
+
+	// Capture output for debugging
+	log.Printf("Starting ComfyUI: %s %s (dir: %s)", pythonExePath, cmd.Args, comfyuiRootDir)
 
 	m.status = ComfyUIStatusStarting
 
@@ -117,6 +110,8 @@ func (m *ComfyUIManager) Start(ctx context.Context) error {
 		m.status = ComfyUIStatusError
 		return fmt.Errorf("failed to start ComfyUI: %w", err)
 	}
+
+	log.Printf("ComfyUI process started with PID: %d", cmd.Process.Pid)
 
 	m.process = cmd.Process
 
@@ -173,33 +168,24 @@ func (m *ComfyUIManager) Stop(ctx context.Context) error {
 
 // waitForStartup waits for ComfyUI to be ready
 func (m *ComfyUIManager) waitForStartup(ctx context.Context) {
-	select {
-	case <-time.After(startupTimeout):
-		if m.status != ComfyUIStatusRunning {
-			m.status = ComfyUIStatusError
-			return
-		}
-	case <-ctx.Done():
-		return
+	log.Printf("ComfyUI waitForStartup started")
+
+	// Wait a bit for the process to start
+	time.Sleep(3 * time.Second)
+
+	// Mark as running - actual HTTP readiness will be checked when making requests
+	m.statusMutex.Lock()
+	if m.status == ComfyUIStatusStarting {
+		m.status = ComfyUIStatusRunning
+		log.Printf("ComfyUI marked as running (PID: %d)", m.process.Pid)
 	}
+	m.statusMutex.Unlock()
 }
 
 // GetStatus returns current status
 func (m *ComfyUIManager) GetStatus() ComfyUIStatus {
 	m.statusMutex.RLock()
 	defer m.statusMutex.RUnlock()
-
-	if m.process != nil && m.status == ComfyUIStatusStarting {
-		// Check if process is still running
-		if m.process.Signal(os.Kill) == nil {
-			m.status = ComfyUIStatusRunning
-		}
-	} else if m.process != nil {
-		// Process has exited, check if it was successful
-		// In real implementation, we would check for "Server started" message
-		m.status = ComfyUIStatusStopped
-	}
-
 	return m.status
 }
 

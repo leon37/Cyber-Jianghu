@@ -414,10 +414,8 @@ func (h *Handlers) StartComfyUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start ComfyUI
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+	// Start ComfyUI with no timeout (background process)
+	ctx := context.Background()
 	if err := h.comfyuiManager.Start(ctx); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{

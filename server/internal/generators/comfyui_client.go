@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -26,23 +27,34 @@ type ComfyUIClient struct {
 	baseURL    string
 }
 
-// Workflow represents a ComfyUI workflow
-type Workflow struct {
-	Nodes map[string]WorkflowNode `json:"nodes"`
-	Links [][]interface{}          `json:"links"`
+// Workflow represents a ComfyUI workflow - use integer node IDs
+type Workflow map[int]*WorkflowNode
+
+// MarshalJSON implements custom JSON marshaling for Workflow
+func (w *Workflow) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[int]*WorkflowNode(*w))
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Workflow
+func (w *Workflow) UnmarshalJSON(data []byte) error {
+	var nodes map[int]*WorkflowNode
+	if err := json.Unmarshal(data, &nodes); err != nil {
+		return err
+	}
+	*w = Workflow(nodes)
+	return nil
 }
 
 // WorkflowNode represents a node in the workflow
 type WorkflowNode struct {
-	ID      int                    `json:"id"`
-	Type    string                 `json:"type"`
-	Inputs  map[string]interface{} `json:"inputs"`
+	ClassType string                 `json:"class_type"`
+	Inputs    map[string]interface{} `json:"inputs"`
 }
 
 // PromptRequest represents a prompt generation request
 type PromptRequest struct {
-	Prompt   Workflow            `json:"prompt"`
-	ClientID string               `json:"client_id"`
+	Prompt   Workflow `json:"prompt"`
+	ClientID string   `json:"client_id"`
 }
 
 // QueueResponse represents the queue status
@@ -240,6 +252,9 @@ func (c *ComfyUIClient) queuePrompt(ctx context.Context, req *PromptRequest) (st
 		return "", err
 	}
 
+	log.Printf("ComfyUI queuePrompt: Sending request to %s", url)
+	log.Printf("ComfyUI queuePrompt: Request body: %s", string(reqBody))
+
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return "", err
@@ -248,20 +263,27 @@ func (c *ComfyUIClient) queuePrompt(ctx context.Context, req *PromptRequest) (st
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		log.Printf("ComfyUI queuePrompt: HTTP error: %v", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	// Read body for logging
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	log.Printf("ComfyUI queuePrompt: Response status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return "", err
 	}
 
 	promptID, ok := result["prompt_id"].(float64)
 	if !ok {
+		log.Printf("ComfyUI queuePrompt: Response missing prompt_id, full response: %+v", result)
 		return "", fmt.Errorf("invalid response: missing prompt_id")
 	}
 
+	log.Printf("ComfyUI queuePrompt: Got prompt_id=%.0f", promptID)
 	return fmt.Sprintf("%.0f", promptID), nil
 }
 
@@ -325,89 +347,102 @@ func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 	}
 
 	// Create workflow nodes
-	workflow := &Workflow{
-		Nodes: map[string]WorkflowNode{
-			"3": {
-				Type: "KSampler",
-				Inputs: map[string]interface{}{
-					"seed":            opts.Seed,
-					"steps":           opts.Steps,
-					"cfg":             opts.CFGScale,
-					"sampler_name":    opts.SamplerName,
-					"scheduler":       opts.Scheduler,
-					"denoise":         1,
-					"model":           []interface{}{4, 0},
-					"positive":        []interface{}{6, 0},
-					"negative":        []interface{}{7, 0},
-					"latent_image":    []interface{}{5, 0},
-				},
-			},
-			"4": {
-				Type: "CheckpointLoaderSimple",
-				Inputs: map[string]interface{}{
-					"ckpt_name": opts.Model,
-				},
-			},
-			"5": {
-				Type: "EmptyLatentImage",
-				Inputs: map[string]interface{}{
-					"width":  opts.Width,
-					"height": opts.Height,
-					"batch_size": 1,
-				},
-			},
-			"6": {
-				Type: "CLIPTextEncode",
-				Inputs: map[string]interface{}{
-					"text":   opts.Prompt,
-					"clip":   []interface{}{1, 0},
-				},
-			},
-			"7": {
-				Type: "CLIPTextEncode",
-				Inputs: map[string]interface{}{
-					"text":   opts.NegativePrompt,
-					"clip":   []interface{}{1, 0},
-				},
-			},
-			"8": {
-				Type: "VAEDecode",
-				Inputs: map[string]interface{}{
-					"samples": []interface{}{3, 0},
-					"vae":      []interface{}{4, 2},
-				},
-			},
-			"9": {
-				Type: "SaveImage",
-				Inputs: map[string]interface{}{
-					"images": []interface{}{8, 0},
-					"filename_prefix": generateFilenamePrefix(),
-				},
-			},
-			"1": {
-				Type: "CLIPLoader",
-				Inputs: map[string]interface{}{
-					"clip_name": "clip_l.safetensors",
-				},
-			},
+	workflow := make(Workflow)
+
+	// Load checkpoint (provides MODEL and CLIP)
+	workflow[4] = &WorkflowNode{
+		ClassType: "CheckpointLoaderSimple",
+		Inputs: map[string]interface{}{
+			"ckpt_name": opts.Model,
+		},
+	}
+
+	// Load VAE separately (use the same checkpoint file for SDXL)
+	workflow[1] = &WorkflowNode{
+		ClassType: "VAELoader",
+		Inputs: map[string]interface{}{
+			"vae_name": opts.Model,
+		},
+	}
+
+	workflow[3] = &WorkflowNode{
+		ClassType: "KSampler",
+		Inputs: map[string]interface{}{
+			"seed":         opts.Seed,
+			"steps":        opts.Steps,
+			"cfg":          opts.CFGScale,
+			"sampler_name": opts.SamplerName,
+			"scheduler":    opts.Scheduler,
+			"denoise":      1,
+			"model":        []interface{}{4, 0},
+			"positive":     []interface{}{6, 0},
+			"negative":     []interface{}{7, 0},
+			"latent_image": []interface{}{5, 0},
+		},
+	}
+
+	workflow[5] = &WorkflowNode{
+		ClassType: "EmptyLatentImage",
+		Inputs: map[string]interface{}{
+			"width":      opts.Width,
+			"height":     opts.Height,
+			"batch_size": 1,
+		},
+	}
+
+	workflow[6] = &WorkflowNode{
+		ClassType: "CLIPTextEncode",
+		Inputs: map[string]interface{}{
+			"text": opts.Prompt,
+			"clip": []interface{}{4, 1},
+		},
+	}
+
+	workflow[7] = &WorkflowNode{
+		ClassType: "CLIPTextEncode",
+		Inputs: map[string]interface{}{
+			"text": opts.NegativePrompt,
+			"clip": []interface{}{4, 1},
+		},
+	}
+
+	workflow[8] = &WorkflowNode{
+		ClassType: "VAEDecode",
+		Inputs: map[string]interface{}{
+			"samples": []interface{}{3, 0},
+			"vae":      []interface{}{1, 0},
+		},
+	}
+
+	workflow[9] = &WorkflowNode{
+		ClassType: "SaveImage",
+		Inputs: map[string]interface{}{
+			"images":          []interface{}{8, 0},
+			"filename_prefix": generateFilenamePrefix(),
 		},
 	}
 
 	// Add LoRA if specified
 	if opts.Lora != "" {
-		workflow.Nodes["10"] = WorkflowNode{
-			Type: "LoraLoader",
+		workflow[10] = &WorkflowNode{
+			ClassType: "LoraLoader",
 			Inputs: map[string]interface{}{
-				"lora_name": opts.Lora,
-				"strength_model": opts.LoraStrength,
-				"strength_clip": opts.LoraStrength,
+				"lora_name":      opts.Lora,
+				"strength_model":  opts.LoraStrength,
+				"strength_clip":   opts.LoraStrength,
 			},
 		}
-		// Update model reference
-		workflow.Nodes["3"].Inputs["model"] = []interface{}{10, 0}
+		// Add model and clip inputs to LoraLoader
+		workflow[10].Inputs["model"] = []interface{}{4, 0}
+		workflow[10].Inputs["clip"] = []interface{}{4, 1}
+		// Update KSampler to use Lora output
+		workflow[3].Inputs["model"] = []interface{}{10, 0}
+		// Update CLIP encoders to use Lora output
+		workflow[6].Inputs["clip"] = []interface{}{10, 1}
+		workflow[7].Inputs["clip"] = []interface{}{10, 1}
 	}
 
-	return workflow
+	return &workflow
 }
 
 // HealthCheck checks if ComfyUI is accessible

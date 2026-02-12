@@ -446,6 +446,10 @@ func (h *StoryHandlers) GenerateImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build options
+	modelName := req.Model
+	if modelName == "" {
+		modelName = "sd_xl_base_1.0.safetensors" // Default SDXL model
+	}
 	opts := &generators.GenerateOptions{
 		Prompt:        req.Prompt,
 		NegativePrompt: req.NegativePrompt,
@@ -453,7 +457,7 @@ func (h *StoryHandlers) GenerateImage(w http.ResponseWriter, r *http.Request) {
 		Height:        req.Height,
 		Steps:         req.Steps,
 		CFGScale:      req.CFGScale,
-		Model:         req.Model,
+		Model:         modelName,
 		SamplerName:   "euler",
 		Scheduler:     "normal",
 	}
