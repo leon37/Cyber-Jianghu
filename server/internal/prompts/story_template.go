@@ -206,7 +206,7 @@ func (e *TemplateEngine) InitializeDefaultTemplates() error {
 		{
 			Name:        "story_continuation",
 			Description: "Main template for continuing the story",
-			Content: `你是一位专业的武侠小说作家，正在创作一部AI互动小说。
+			Content: `你是一位深谙金庸武侠风格的专业小说家，正在创作一部纯正的古龙江湖互动小说。
 
 ## 故事背景
 {{story_summary}}
@@ -226,12 +226,18 @@ func (e *TemplateEngine) InitializeDefaultTemplates() error {
 {{related_decisions}}
 
 ## 写作要求
-1. 基于{{protagonist}}的性格设定，描述其行为和反应
-2. 融合当前场景的环境描写
-3. 针对玩家的行为给出合理的剧情分支
-4. 保持{{genre}}的风格和{{tone}}的语调
-5. 控制在300-500字以内
-6. 结尾给出2-3个供玩家选择的行为选项
+1. 完全使用金庸古龙江湖风格的语言和描写方式
+2. 严禁出现任何现代科技、霓虹、芯片、机械、电子、AI、虚拟等词汇
+3. 严禁出现'赛博'、'科幻'、'未来'、'高科技'等概念
+4. 环境描写使用古典武侠元素：古道、客栈、茶楼、古庙、山洞、竹林、江湖门派
+5. 兵器描写使用武侠元素：刀、剑、棍、鞭、扇、暗器，避免'能量剑'、'激光'、'电磁'等
+6. 人物对话使用古风白话文，如'少侠'、'阁下'、'在下'、'姑娘'、'道长'
+7. 基于{{protagonist}}的性格设定，描述其行为和反应
+8. 融合当前场景的环境描写
+9. 针对玩家的行为给出合理的剧情分支
+10. 保持{{tone}}的语调
+11. 控制在300-500字以内
+12. 结尾给出2-3个供玩家选择的行为选项，选项用 A. B. C. 或 ① ② ③ 格式
 
 请继续创作故事：`,
 			Variables: []string{"story_summary", "current_scene", "previous_text", "player_action", "related_memories", "related_decisions", "protagonist", "genre", "tone"},

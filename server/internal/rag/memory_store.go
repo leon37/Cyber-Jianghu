@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"Cyber-Jianghu/server/internal/engine"
-	"Cyber-Jianghu/server/internal/interfaces"
 )
 
 // MemoryType represents the type of memory
@@ -42,12 +39,12 @@ type DecisionMemory struct {
 // MemoryStore manages story memories with vector search
 type MemoryStore struct {
 	qdrantClient *QdrantClient
-	embedding    *engine.EmbeddingService
+	embedding    *EmbeddingService
 	collection   string
 }
 
 // NewMemoryStore creates a new memory store
-func NewMemoryStore(qdrant *QdrantClient, embedding *engine.EmbeddingService) *MemoryStore {
+func NewMemoryStore(qdrant *QdrantClient, embedding *EmbeddingService) *MemoryStore {
 	return &MemoryStore{
 		qdrantClient: qdrant,
 		embedding:    embedding,

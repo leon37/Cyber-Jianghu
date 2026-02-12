@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -15,7 +16,7 @@ const (
 	sovitsHost         = "localhost"
 	sovitsPort         = 9880
 	sovitsBaseURL     = "http://localhost:9880"
-	defaultTimeout    = 60 * time.Second
+	sovitsTimeout     = 60 * time.Second
 )
 
 // GPTSoVITSClient connects to local GPT-SoVITS instance
@@ -66,7 +67,7 @@ type VoiceRegistry struct {
 func NewGPTSoVITSClient() *GPTSoVITSClient {
 	return &GPTSoVITSClient{
 		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+			Timeout: sovitsTimeout,
 		},
 		baseURL: sovitsBaseURL,
 	}

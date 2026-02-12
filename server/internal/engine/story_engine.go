@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -44,13 +45,13 @@ type StoryResponse struct {
 	NextNode      string                 `json:"next_node,omitempty"`
 	VisualPrompt   string                 `json:"visual_prompt,omitempty"`
 	AudioPrompt    string                 `json:"audio_prompt,omitempty"`
-	RelatedMemories []rag.Memory          `json:"related_memories,omitempty"`
+	RelatedMemories []*rag.Memory `json:"related_memories,omitempty"`
 }
 
 // StoryEngine manages story generation and state
 type StoryEngine struct {
 	glm5Client    *GLM5Client
-	embedService  *EmbeddingService
+	embedService  *rag.EmbeddingService
 	memoryStore   *rag.MemoryStore
 	promptEngine *prompts.TemplateEngine
 	audioClient   *generators.GPTSoVITSClient
@@ -65,6 +66,14 @@ type StoryEngine struct {
 	defaultVoiceID string
 }
 
+// Story represents a complete story
+type Story struct {
+	ID      string      `json:"id"`
+	State   *StoryState `json:"state"`
+	Content string      `json:"content"`
+	Options []StoryOption `json:"options"`
+}
+
 // NewStoryEngine creates a new story engine
 func NewStoryEngine(
 	apiKey string,
@@ -72,7 +81,7 @@ func NewStoryEngine(
 	audioCacheDir string,
 ) *StoryEngine {
 	glm5Client := NewGLM5Client(apiKey)
-	embedService := NewEmbeddingService(apiKey)
+	embedService := rag.NewEmbeddingService(apiKey)
 	memoryStore := rag.NewMemoryStore(qdrantClient, embedService)
 	promptEngine := prompts.NewTemplateEngine()
 	audioClient := generators.NewGPTSoVITSClient()
@@ -168,6 +177,19 @@ func (e *StoryEngine) CreateStory(ctx context.Context, storyID string, settings 
 	return state, nil
 }
 
+// GetStoryState retrieves a story state
+func (e *StoryEngine) GetStoryState(storyID string) (*StoryState, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	state, ok := e.state[storyID]
+	if !ok {
+		return nil, fmt.Errorf("story not found: %s", storyID)
+	}
+
+	return state, nil
+}
+
 // GenerateStorySegment generates a story segment based on player action
 func (e *StoryEngine) GenerateStorySegment(
 	ctx context.Context,
@@ -221,15 +243,18 @@ func (e *StoryEngine) GenerateStorySegment(
 	// Render prompt
 	prompt, err := e.promptEngine.Render("story_continuation", storyCtx)
 	if err != nil {
+		log.Printf("Error rendering prompt: %v", err)
 		return nil, fmt.Errorf("failed to render prompt: %w", err)
 	}
 
+	log.Printf("Calling GLM-5 with prompt (first 200 chars): %s...", prompt[:min(200, len(prompt))])
+
 	// Call GLM-5
-	messages := []engine.ChatMessage{
+	messages := []ChatMessage{
 		{Role: "user", Content: prompt},
 	}
 
-	req := &engine.ChatRequest{
+	req := &ChatRequest{
 		Messages:    messages,
 		Model:       e.storyModel,
 		Temperature: 0.7,
@@ -238,6 +263,7 @@ func (e *StoryEngine) GenerateStorySegment(
 
 	resp, err := e.glm5Client.Chat(ctx, req)
 	if err != nil {
+		log.Printf("Error calling GLM-5 API: %v", err)
 		return nil, fmt.Errorf("failed to generate story: %w", err)
 	}
 
@@ -247,8 +273,17 @@ func (e *StoryEngine) GenerateStorySegment(
 
 	generatedText := resp.Choices[0].Message.Content
 
+	// Log generated text for debugging
+	log.Printf("Generated text (first 500 chars): %s...", generatedText[:min(500, len(generatedText))])
+
 	// Parse response to extract options
 	options := e.parseOptionsFromResponse(generatedText)
+
+	// Log parsed options for debugging
+	log.Printf("Parsed %d options:", len(options))
+	for i, opt := range options {
+		log.Printf("  Option %d: ID=%s, Text=%s", i, opt.ID, opt.Text)
+	}
 
 	// Generate visual prompt
 	imageCtx := &prompts.ImagePromptContext{
@@ -315,29 +350,6 @@ func (e *StoryEngine) ApplyOption(ctx context.Context, storyID, optionID string,
 	return e.GenerateStorySegment(ctx, storyID, choiceText, decision.Memory)
 }
 
-// GetStoryState retrieves the current state of a story
-func (e *StoryEngine) GetStoryState(storyID string) (*StoryState, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	state, ok := e.state[storyID]
-	if !ok {
-		return nil, fmt.Errorf("story not found: %s", storyID)
-	}
-
-	// Return a copy to avoid concurrent modification
-	stateCopy := *state
-	stateCopy.Options = append([]StoryOption{}, state.Options...)
-	if state.Custom != nil {
-		stateCopy.Custom = make(map[string]interface{})
-		for k, v := range state.Custom {
-			stateCopy.Custom[k] = v
-		}
-	}
-
-	return &stateCopy, nil
-}
-
 // GetActiveStories returns list of active story IDs
 func (e *StoryEngine) GetActiveStories() []string {
 	e.mu.RLock()
@@ -382,43 +394,60 @@ func (e *StoryEngine) EndStory(ctx context.Context, storyID string, save bool) e
 func (e *StoryEngine) parseOptionsFromResponse(text string) []StoryOption {
 	options := []StoryOption{}
 
-	// Simple parsing - look for numbered options
-	// In production, this would be more sophisticated
-	optionPatterns := [][]string{
-		{"1.", "2.", "3."},
-		{"A.", "B.", "C."},
-		{"一、", "二、", "三、"},
+	// Multiple option patterns to try
+	optionPatterns := []struct {
+		prefixes []string
+		letterID  bool // Use letters (A, B, C) as IDs
+	}{
+		{prefixes: []string{"A.", "B.", "C.", "D.", "E."}, letterID: true},
+		{prefixes: []string{"1.", "2.", "3.", "4.", "5."}, letterID: false},
+		{prefixes: []string{"一、", "二、", "三、", "四、", "五、"}, letterID: false},
+		{prefixes: []string{"【", "】"}, letterID: false}, // 【选项】
 	}
 
-	for _, patterns := range optionPatterns {
-		foundAll := true
-		for i, pattern := range patterns {
-			if !containsSubstring(text, pattern) {
-				foundAll = false
+	// Try each pattern
+	for _, pattern := range optionPatterns {
+		foundOptions := 0
+		for i, prefix := range pattern.prefixes {
+			// Check if prefix exists in text
+			if !containsSubstring(text, prefix) {
 				break
 			}
 
-			// Extract option text (simplified)
-			optionText := e.extractOptionText(text, pattern)
-			if optionText != "" {
-				options = append(options, StoryOption{
-					ID:          fmt.Sprintf("%d", i+1),
-					Text:        pattern + optionText,
-					Description: optionText,
-				})
+			// Extract option text
+			optionText := e.extractOptionText(text, prefix)
+			if optionText == "" {
+				break
 			}
+
+			// Generate option ID
+			var optionID string
+			if pattern.letterID {
+				optionID = string(rune('A' + i))
+			} else {
+				optionID = fmt.Sprintf("%d", i+1)
+			}
+
+			options = append(options, StoryOption{
+				ID:          optionID,
+				Text:        prefix + optionText,
+				Description: optionText,
+			})
+			foundOptions++
 		}
-		if foundAll && len(options) >= 2 {
-			break
+
+		// If we found at least 2 options, use these
+		if foundOptions >= 2 {
+			return options
 		}
 	}
 
 	// If no options found, provide default
 	if len(options) == 0 {
 		options = []StoryOption{
-			{ID: "1", Text: "继续前进", Description: "继续探索当前场景"},
-			{ID: "2", Text: "观察周围", Description: "仔细观察环境细节"},
-			{ID: "3", Text: "询问NPC", Description: "与附近的人交谈"},
+			{ID: "A", Text: "继续前进", Description: "继续探索当前场景"},
+			{ID: "B", Text: "观察周围", Description: "仔细观察环境细节"},
+			{ID: "C", Text: "询问NPC", Description: "与附近的人交谈"},
 		}
 	}
 
@@ -444,9 +473,59 @@ func (e *StoryEngine) extractSceneDescription(text string) string {
 
 // extractOptionText extracts option text from response
 func (e *StoryEngine) extractOptionText(text, prefix string) string {
-	// Find prefix and extract text after it
-	// Simplified implementation
-	return ""
+	// Find the position of the prefix
+	prefixIndex := findSubstring(text, prefix)
+	if prefixIndex < 0 {
+		return ""
+	}
+
+	// Extract text after the prefix
+	remaining := text[prefixIndex+len(prefix):]
+
+	// Find the end of the option
+	// Options are typically followed by newline, next option, or end of text
+	endMarkers := []string{"\n\n", "\n", "。", ".", "\r\n", "A.", "B.", "C.", "1.", "2.", "3.", "一、", "二、", "三、"}
+
+	earliestEnd := -1
+	for _, marker := range endMarkers {
+		markerIndex := findSubstring(remaining, marker)
+		if markerIndex >= 0 && (earliestEnd < 0 || markerIndex < earliestEnd) {
+			// Skip if marker is the same as prefix (avoid matching next option's prefix)
+			if marker != prefix {
+				earliestEnd = markerIndex
+			}
+		}
+	}
+
+	var optionText string
+	if earliestEnd >= 0 {
+		optionText = remaining[:earliestEnd]
+	} else {
+		// Take up to 100 chars as option text
+		if len(remaining) > 100 {
+			optionText = remaining[:100]
+		} else {
+			optionText = remaining
+		}
+	}
+
+	// Trim whitespace
+	return trimWhitespace(optionText)
+}
+
+// trimWhitespace trims leading and trailing whitespace
+func trimWhitespace(s string) string {
+	start := 0
+	for start < len(s) && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+
+	end := len(s)
+	for end > 0 && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+
+	return s[start:end]
 }
 
 // Helper functions
@@ -491,6 +570,13 @@ func buildDecisionTexts(decisions []*rag.DecisionMemory) []string {
 		texts[i] = fmt.Sprintf("[决策] %s: %s", dec.OptionID, dec.ChoiceText)
 	}
 	return texts
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GenerateAudio generates audio for story text

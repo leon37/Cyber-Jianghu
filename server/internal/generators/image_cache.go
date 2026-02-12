@@ -100,7 +100,7 @@ func (c *ImageCache) Initialize(ctx context.Context) error {
 		}
 
 		// Check if expired
-		if !c.ttl.IsZero() && time.Since(cacheEntry.CreatedAt) > c.ttl {
+		if c.ttl != 0 && time.Since(cacheEntry.CreatedAt) > c.ttl {
 			// Clean up expired entry
 			_ = os.Remove(filepath.Join(c.directory, entry.Name()))
 			_ = os.Remove(metaPath)
@@ -108,7 +108,6 @@ func (c *ImageCache) Initialize(ctx context.Context) error {
 		}
 
 		// Load image data if needed
-		imagePath := filepath.Join(c.directory, entry.Name())
 		if info, err := entry.Info(); err == nil {
 			cacheEntry.FileSize = info.Size()
 		}
@@ -134,7 +133,7 @@ func (c *ImageCache) Get(ctx context.Context, key string) ([]byte, error) {
 	}
 
 	// Check if expired
-	if !c.ttl.IsZero() && time.Since(entry.CreatedAt) > c.ttl {
+	if c.ttl > 0 && time.Since(entry.CreatedAt) > c.ttl {
 		delete(c.entries, key)
 		c.stats.Misses++
 		c.updateHitRate()
@@ -241,7 +240,7 @@ func (c *ImageCache) Check(key string) bool {
 	}
 
 	// Check if expired
-	if !c.ttl.IsZero() && time.Since(entry.CreatedAt) > c.ttl {
+	if c.ttl > 0 && time.Since(entry.CreatedAt) > c.ttl {
 		return false
 	}
 
@@ -354,7 +353,7 @@ func (c *ImageCache) CleanExpired(ctx context.Context) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.ttl.IsZero() {
+	if c.ttl == 0 {
 		return 0
 	}
 

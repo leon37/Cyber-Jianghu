@@ -1,13 +1,15 @@
 package rag
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"sync"
 	"time"
-
-	"Cyber-Jianghu/server/internal/engine"
 )
 
 const (
@@ -16,6 +18,9 @@ const (
 	embeddingV2      = "embedding-2"
 	cacheTTL         = 24 * time.Hour
 	embeddingDim     = 1024 // GLM-5 embedding dimension
+	defaultTimeout   = 30 * time.Second
+	maxRetries       = 3
+	retryDelay       = 1 * time.Second
 )
 
 // EmbeddingCache stores cached embeddings
@@ -32,19 +37,23 @@ type CachedEmbedding struct {
 
 // EmbeddingService handles text embedding generation and caching
 type EmbeddingService struct {
-	client    *engine.GLM5Client
+	baseURL   string
+	apiKey    string
 	cache     *EmbeddingCache
 	model     string
 	batchSize int
+	client    *http.Client
 }
 
 // NewEmbeddingService creates a new embedding service
 func NewEmbeddingService(apiKey string) *EmbeddingService {
 	return &EmbeddingService{
-		client:    engine.NewGLM5Client(apiKey),
+		baseURL:   "https://open.bigmodel.cn/api/paas/v4",
+		apiKey:    apiKey,
 		cache:     &EmbeddingCache{cache: make(map[string]*CachedEmbedding)},
 		model:     embeddingV3,
 		batchSize: 100, // GLM-5 supports batch processing
+		client:    &http.Client{Timeout: defaultTimeout},
 	}
 }
 
@@ -126,7 +135,7 @@ func (s *EmbeddingService) embedBatchUncached(ctx context.Context, texts []strin
 		}
 
 		batch := texts[i:end]
-		response, err := s.client.CreateEmbedding(ctx, batch, s.model)
+		response, err := s.createEmbedding(ctx, batch, s.model)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create embeddings: %w", err)
 		}
@@ -144,6 +153,88 @@ func (s *EmbeddingService) embedBatchUncached(ctx context.Context, texts []strin
 	}
 
 	return allVectors, nil
+}
+
+// createEmbedding creates embeddings via HTTP API
+func (s *EmbeddingService) createEmbedding(ctx context.Context, texts []string, model string) (*EmbeddingResponse, error) {
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryDelay * time.Duration(attempt)):
+			}
+		}
+
+		reqBody := map[string]interface{}{
+			"input": texts,
+			"model": model,
+		}
+
+		jsonBody, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		url := fmt.Sprintf("%s/embeddings", s.baseURL)
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.apiKey))
+
+		resp, err := s.client.Do(httpReq)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		respBody, err := s.readResponse(resp)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			var result EmbeddingResponse
+			if err := json.Unmarshal(respBody, &result); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+			}
+			return &result, nil
+		}
+
+		// Parse error
+		var errorResp struct {
+			Error *struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &errorResp); err != nil {
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+		} else if errorResp.Error != nil {
+			lastErr = fmt.Errorf("API error: %s", errorResp.Error.Message)
+		} else {
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+		}
+	}
+
+	return nil, fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// readResponse reads response body with error handling
+func (s *EmbeddingService) readResponse(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	return body, nil
 }
 
 // getFromCache retrieves embedding from cache
@@ -304,4 +395,23 @@ func (s *EmbeddingService) GetStats() *EmbeddingStats {
 		EmbeddingDim: embeddingDim,
 		BatchSize:    s.batchSize,
 	}
+}
+
+// EmbeddingRequest represents an embedding request
+type EmbeddingRequest struct {
+	Input []string `json:"input"`
+	Model string   `json:"model"`
+}
+
+// EmbeddingResponse represents an embedding response
+type EmbeddingResponse struct {
+	Data []struct {
+		Embedding []float64 `json:"embedding"`
+		Index     int       `json:"index"`
+	} `json:"data"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error,omitempty"`
 }

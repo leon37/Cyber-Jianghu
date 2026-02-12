@@ -4,6 +4,11 @@
 
 赛博江湖是一个 AI 原生互动直播游戏，核心玩法是通过观众弹幕指令驱动剧情发展，实时生成图像、语音和文本并推流至直播平台。
 
+**核心特色**：
+- 金庸古龙江湖风格：纯正的武侠世界观，无赛博朋克元素
+- LLM 驱动剧情：GLM-5 模型根据用户输入生成剧情和选项
+- 双模式运行：演示模式（单机测试）+ 直播模式（弹幕驱动）
+
 ---
 
 ## 架构图
@@ -181,10 +186,16 @@
 **文件列表**:
 ```
 📁 AI 引擎 (engine)
+└── story_engine.go              ← 故事引擎核心（新增）
 └── glm5_client.go                ← GLM-5 API 调用
 
 📁 Prompt 模板 (prompts)
-└── story_template.go             ← 模板渲染逻辑
+└── story_template.go             ← 模板渲染逻辑（含金庸风格提示词）
+
+📁 资源生成 (generators)
+└── gptsovits_client.go          ← GPT-SoVITS 语音合成（新增）
+└── audio_cache.go               ← 音频缓存（新增）
+└── voice_registry.go            ← 音色注册（新增）
 
 📁 RAG 向量检索 (rag)
 ├── embedding.go                 ← 文本向量化
@@ -464,6 +475,10 @@ web/handlers.go → prompts/story_template.go → engine/glm5_client.go
 | POST | `/api/v1/live/disconnect` | 断开直播间 |
 | GET | `/api/v1/live/status` | 查询连接状态 |
 | WebSocket | `/api/v1/live/danmaku` | 弹幕实时流 |
+| POST | `/api/v1/story/create` | 创建新故事 |
+| POST | `/api/v1/story/continue` | 继续故事（输入行动） |
+| POST | `/api/v1/story/select` | 选择故事选项 |
+| GET | `/api/v1/story/{story_id}` | 查询故事状态 |
 
 ---
 

@@ -54,3 +54,28 @@ type StoryEngine interface {
 	// UpdateContext updates the story context
 	UpdateContext(ctx context.Context, sessionID string, updates map[string]interface{}) error
 }
+
+// StoryOption represents a player choice option
+type StoryOption struct {
+	ID          string                 `json:"id"`
+	Text        string                 `json:"text"`
+	Description string                 `json:"description"`
+	NextNode    string                 `json:"next_node,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// Story represents the story state (simple version for engine.StoryState compatibility)
+// This is a simplified version used for prompt building
+type Story struct {
+	CurrentScene  string                 `json:"current_scene"`
+	PreviousText  string                 `json:"previous_text"`
+	Summary       string                 `json:"summary"`
+	Protagonist   string                 `json:"protagonist"`
+	NPCs          string                 `json:"npcs"`
+	Genre          string                 `json:"genre"`
+	Tone           string                 `json:"tone"`
+	Style          string                 `json:"style"`
+	Options        []StoryOption         `json:"options"`
+	Custom         map[string]interface{} `json:"custom"`
+}
+

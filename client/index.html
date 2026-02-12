@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>赛博江湖 - AI原生互动直播</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="title">赛博江湖</h1>
+            <div class="subtitle">AI 原生互动直播游戏</div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Story Display -->
+            <section class="story-section">
+                <div id="story-display" class="story-display">
+                    <div class="loading">等待故事开始...</div>
+                </div>
+            </section>
+
+            <!-- Visual Display -->
+            <section class="visual-section">
+                <div id="visual-display" class="visual-display">
+                    <div class="placeholder">图像区域</div>
+                </div>
+            </section>
+
+            <!-- Options Panel -->
+            <section class="options-section">
+                <h2 class="section-title">选择你的行动</h2>
+                <div id="options-display" class="options-display">
+                    <!-- Options will be dynamically loaded here -->
+                </div>
+            </section>
+
+            <!-- Danmaku Display -->
+            <section class="danmaku-section">
+                <h2 class="section-title">弹幕</h2>
+                <div id="danmaku-display" class="danmaku-display">
+                    <!-- Danmaku messages will appear here -->
+                </div>
+            </section>
+        </div>
+
+        <!-- Controls -->
+        <aside class="controls">
+            <h2 class="section-title">控制面板</h2>
+
+            <!-- Live Status -->
+            <div class="control-group">
+                <div class="status-indicator" id="live-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">未连接</span>
+                </div>
+            </div>
+
+            <!-- Mode Selection -->
+            <div class="mode-selection">
+                <h3>选择模式</h3>
+                <button class="btn btn-primary mode-btn" data-mode="demo">📖 演示模式</button>
+                <button class="btn btn-secondary mode-btn" data-mode="live">🎭 直播模式</button>
+            </div>
+
+            <!-- Demo Form - Hidden, use options instead -->
+            <form id="demo-form" class="demo-form" style="display: none;">
+                <div class="form-group">
+                    <label for="action">输入行动/对话</label>
+                    <input type="text" id="action" name="action" placeholder="例如：走进客栈 / 与店主打招呼">
+                </div>
+                <button type="submit" class="btn btn-primary" id="demo-btn">发送</button>
+            </form>
+
+            <!-- Live Form (hidden by default) -->
+            <form id="connect-form" class="connect-form" style="display: none;">
+                <div class="form-group">
+                    <label for="platform">平台</label>
+                    <select id="platform" name="platform">
+                        <option value="bilibili">Bilibili</option>
+                        <option value="douyin">抖音</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="room_id">房间号</label>
+                    <input type="text" id="room_id" name="room_id" placeholder="输入房间号">
+                </div>
+                <div class="form-group">
+                    <label for="cookie">Cookie (可选)</label>
+                    <input type="text" id="cookie" name="cookie" placeholder="输入 Cookie">
+                </div>
+                <button type="submit" class="btn btn-primary" id="connect-btn">连接</button>
+                <button type="button" class="btn btn-danger" id="disconnect-btn" disabled>断开</button>
+            </form>
+
+            <!-- Debug Info -->
+            <div class="debug-info">
+                <h3>调试信息</h3>
+                <div id="debug-log" class="debug-log">
+                    <div class="log-entry">系统就绪</div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Audio Player -->
+    <audio id="audio-player" class="audio-player"></audio>
+
+    <script src="/static/js/app.js?v=5"></script>
+</body>
+</html>

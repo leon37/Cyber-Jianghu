@@ -10,6 +10,13 @@ import (
 	"sync"
 )
 
+// ConnectOptions holds connection parameters for live platform
+type ConnectOptions struct {
+	Platform string `json:"platform"` // "bilibili" or "douyin"
+	RoomID   string `json:"room_id"`
+	Cookie   string `json:"cookie"`
+}
+
 // LiveService manages live platform connections
 type LiveService struct {
 	adapter interfaces.LiveAdapter
@@ -36,13 +43,6 @@ func (s *LiveService) SetRedisStore(redisStore *storage.RedisStore) {
 	s.redisStore = redisStore
 }
 
-// ConnectOptions holds connection parameters for live platform
-type ConnectRequest struct {
-	Platform string `json:"platform"` // "bilibili" or "douyin"
-	RoomID   string `json:"room_id"`
-	Cookie   string `json:"cookie"`
-}
-
 // ConnectResponse holds connection response
 type ConnectResponse struct {
 	Success   bool   `json:"success"`
@@ -52,16 +52,8 @@ type ConnectResponse struct {
 	Connected bool   `json:"connected"`
 }
 
-// StatusResponse holds status response
-type StatusResponse struct {
-	Connected bool   `json:"connected"`
-	Platform  string `json:"platform,omitempty"`
-	RoomID    string `json:"room_id,omitempty"`
-	ClientCount int  `json:"client_count"`
-}
-
 // Connect connects to a live platform
-func (s *LiveService) Connect(ctx context.Context, opts *ConnectRequest, hub *DanmakuHub) error {
+func (s *LiveService) Connect(ctx context.Context, opts *ConnectOptions, hub *DanmakuHub) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -131,11 +123,11 @@ func (s *LiveService) IsConnected() bool {
 }
 
 // GetStatus returns the current status
-func (s *LiveService) GetStatus() *StatusResponse {
+func (s *LiveService) GetStatus() *LiveStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return &StatusResponse{
+	return &LiveStatus{
 		Connected: s.connected,
 		Platform:  s.platform,
 		RoomID:    s.roomID,

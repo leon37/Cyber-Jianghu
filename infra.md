@@ -11,6 +11,7 @@ Cyber-Jianghu/
 │   │   ├── adapters/           # 直播平台适配器
 │   │   ├── config/             # 配置管理
 │   │   ├── engine/             # AI 引擎
+│   │   ├── generators/         # 资源生成（语音/图像）
 │   │   ├── interfaces/         # 接口定义
 │   │   ├── models/             # 数据模型
 │   │   ├── prompts/            # Prompt 模板
@@ -20,7 +21,13 @@ Cyber-Jianghu/
 │   ├── configs/                # 配置文件
 │   ├── go.mod                 # Go 模块定义
 │   └── go.sum                 # 依赖锁定
-├── client/                     # 前端客户端（待开发）
+├── client/                     # 前端客户端
+│   ├── index.html              # 主页面
+│   ├── static/
+│   │   ├── css/
+│   │   │   └── style.css     # 赛博武侠风格样式
+│   │   └── js/
+│   │       └── app.js        # 前端应用逻辑
 ├── PROGRESS.md                 # 开发进度
 ├── README.md                  # 项目说明
 └── init.md                   # 初始需求文档
@@ -41,6 +48,7 @@ Cyber-Jianghu/
 - **模型**: 智谱 AI GLM-5
 - **Embedding**: GLM Embedding API
 - **Prompt**: 模板引擎 (自定义)
+- **提示词风格**: 金庸古龙江湖风格（纯正武侠，无赛博朋克元素）
 
 ### 向量数据库
 - **Qdrant**: 开源向量数据库
@@ -273,6 +281,26 @@ curl http://localhost:8080/health
   "service": "cyber-jianghu"
 }
 ```
+
+## API 端点
+
+### 故事管理 API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/story/create` | 创建新故事 |
+| POST | `/api/v1/story/continue` | 继续故事（输入行动） |
+| POST | `/api/v1/story/select` | 选择故事选项 |
+| GET | `/api/v1/story/{story_id}` | 查询故事状态 |
+
+### 直播管理 API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/live/connect` | 连接直播间 |
+| POST | `/api/v1/live/disconnect` | 断开直播间 |
+| GET | `/api/v1/live/status` | 查询连接状态 |
+| WebSocket | `/api/v1/live/danmaku` | 弹幕实时流 |
 
 ---
 
