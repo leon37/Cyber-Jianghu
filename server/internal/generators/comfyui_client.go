@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	comfyUIHost         = "localhost"
-	comfyUIPort         = 8188
-	comfyBaseURL        = "http://localhost:8188"
-	defaultTimeout     = 300 * time.Second
-	pollInterval      = 1 * time.Second
-	maxPollAttempts   = 300 // 5 minutes max wait time
+	comfyUIHost     = "localhost"
+	comfyUIPort     = 8188
+	comfyBaseURL    = "http://localhost:8188"
+	defaultTimeout  = 300 * time.Second
+	pollInterval   = 1 * time.Second
+	maxPollAttempts = 300 // 5 minutes max wait time
 )
 
 // ComfyUIClient connects to local ComfyUI instance
@@ -57,21 +57,21 @@ type PromptRequest struct {
 	ClientID string   `json:"client_id"`
 }
 
-// QueueResponse represents the queue status
+// QueueResponse represents queue status
 type QueueResponse struct {
 	QueueRunning []QueueItem `json:"queue_running"`
 	QueuePending []QueueItem `json:"queue_pending"`
 }
 
-// QueueItem represents an item in the queue
+// QueueItem represents an item in queue
 type QueueItem struct {
-	PromptID    []int `json:"prompt"`
+	PromptID   []int                    `json:"prompt"`
 	Additional  map[string]interface{} `json:"additional_info"`
 }
 
 // HistoryResponse represents generation history
 type HistoryResponse struct {
-	Queue  map[string]HistoryItem `json:"queue_running"`
+	Queue map[string]HistoryItem `json:"queue_running"`
 }
 
 // HistoryItem represents a history item
@@ -105,7 +105,7 @@ type GenerateOptions struct {
 	Scheduler     string
 }
 
-// GenerateResult represents the result of image generation
+// GenerateResult represents result of image generation
 type GenerateResult struct {
 	ImageID    string
 	ImageData  []byte
@@ -166,7 +166,7 @@ func (c *ComfyUIClient) GenerateImageAsync(ctx context.Context, opts *GenerateOp
 	return c.queuePrompt(ctx, req)
 }
 
-// GetQueueStatus returns the current queue status
+// GetQueueStatus returns current queue status
 func (c *ComfyUIClient) GetQueueStatus(ctx context.Context) (*QueueResponse, error) {
 	url := fmt.Sprintf("%s/queue", c.baseURL)
 
@@ -287,7 +287,7 @@ func (c *ComfyUIClient) queuePrompt(ctx context.Context, req *PromptRequest) (st
 	return fmt.Sprintf("%.0f", promptID), nil
 }
 
-// pollForResult polls for the generation result
+// pollForResult polls for generation result
 func (c *ComfyUIClient) pollForResult(ctx context.Context, promptID string) (*GenerateResult, error) {
 	for attempt := 0; attempt < maxPollAttempts; attempt++ {
 		select {
@@ -330,26 +330,29 @@ func (c *ComfyUIClient) pollForResult(ctx context.Context, promptID string) (*Ge
 	return nil, fmt.Errorf("timeout waiting for image generation")
 }
 
-// buildSDXLWorkflow builds a workflow for SDXL Turbo
+// buildSDXLWorkflow builds a workflow for SDXL based on working template
+// Uses node IDs 4, 5, 6, 7, 8, 9 to match the template structure
 func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 	// Apply defaults
 	if opts.Width == 0 {
-		opts.Width = 1024
+		opts.Width = 512 // Use smaller size for faster generation
 	}
 	if opts.Height == 0 {
-		opts.Height = 1024
+		opts.Height = 512
 	}
 	if opts.Steps == 0 {
-		opts.Steps = 8 // SDXL Turbo needs fewer steps
+		opts.Steps = 20 // Standard steps for SDXL
 	}
 	if opts.CFGScale == 0 {
 		opts.CFGScale = 7.0
 	}
+	if opts.Seed == 0 {
+		opts.Seed = int(time.Now().Unix())
+	}
 
-	// Create workflow nodes
 	workflow := make(Workflow)
 
-	// Load checkpoint (provides MODEL and CLIP)
+	// Node 4: CheckpointLoaderSimple - provides MODEL (slot 0), CLIP (slot 1), VAE (slot 2)
 	workflow[4] = &WorkflowNode{
 		ClassType: "CheckpointLoaderSimple",
 		Inputs: map[string]interface{}{
@@ -357,30 +360,29 @@ func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 		},
 	}
 
-	// Load VAE separately (use the same checkpoint file for SDXL)
-	workflow[1] = &WorkflowNode{
-		ClassType: "VAELoader",
+	// Node 6: CLIPTextEncode - positive prompt
+	workflow[6] = &WorkflowNode{
+		ClassType: "CLIPTextEncode",
 		Inputs: map[string]interface{}{
-			"vae_name": opts.Model,
+			"text": opts.Prompt,
+			"clip": []interface{}{4, 1}, // CLIP from CheckpointLoaderSimple (node 4, slot 1)
 		},
 	}
 
-	workflow[3] = &WorkflowNode{
-		ClassType: "KSampler",
+	// Node 7: CLIPTextEncode - negative prompt
+	negativePrompt := opts.NegativePrompt
+	if negativePrompt == "" {
+		negativePrompt = "text, watermark, low quality"
+	}
+	workflow[7] = &WorkflowNode{
+		ClassType: "CLIPTextEncode",
 		Inputs: map[string]interface{}{
-			"seed":         opts.Seed,
-			"steps":        opts.Steps,
-			"cfg":          opts.CFGScale,
-			"sampler_name": opts.SamplerName,
-			"scheduler":    opts.Scheduler,
-			"denoise":      1,
-			"model":        []interface{}{4, 0},
-			"positive":     []interface{}{6, 0},
-			"negative":     []interface{}{7, 0},
-			"latent_image": []interface{}{5, 0},
+			"text": negativePrompt,
+			"clip": []interface{}{4, 1}, // CLIP from CheckpointLoaderSimple (node 4, slot 1)
 		},
 	}
 
+	// Node 5: EmptyLatentImage
 	workflow[5] = &WorkflowNode{
 		ClassType: "EmptyLatentImage",
 		Inputs: map[string]interface{}{
@@ -390,56 +392,39 @@ func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 		},
 	}
 
-	workflow[6] = &WorkflowNode{
-		ClassType: "CLIPTextEncode",
+	// Node 3: KSampler
+	workflow[3] = &WorkflowNode{
+		ClassType: "KSampler",
 		Inputs: map[string]interface{}{
-			"text": opts.Prompt,
-			"clip": []interface{}{4, 1},
+			"seed":         opts.Seed,
+			"steps":        opts.Steps,
+			"cfg":          opts.CFGScale,
+			"sampler_name": opts.SamplerName,
+			"scheduler":    opts.Scheduler,
+			"denoise":      1,
+			"model":        []interface{}{4, 0}, // MODEL from CheckpointLoaderSimple (node 4, slot 0)
+			"positive":     []interface{}{6, 0}, // positive from CLIPTextEncode (node 6)
+			"negative":     []interface{}{7, 0}, // negative from CLIPTextEncode (node 7)
+			"latent_image": []interface{}{5, 0}, // latent from EmptyLatentImage (node 5)
 		},
 	}
 
-	workflow[7] = &WorkflowNode{
-		ClassType: "CLIPTextEncode",
-		Inputs: map[string]interface{}{
-			"text": opts.NegativePrompt,
-			"clip": []interface{}{4, 1},
-		},
-	}
-
+	// Node 8: VAEDecode
 	workflow[8] = &WorkflowNode{
 		ClassType: "VAEDecode",
 		Inputs: map[string]interface{}{
-			"samples": []interface{}{3, 0},
-			"vae":      []interface{}{1, 0},
+			"samples": []interface{}{3, 0}, // samples from KSampler (node 3)
+			"vae":      []interface{}{4, 2}, // VAE from CheckpointLoaderSimple (node 4, slot 2)
 		},
 	}
 
+	// Node 9: SaveImage
 	workflow[9] = &WorkflowNode{
 		ClassType: "SaveImage",
 		Inputs: map[string]interface{}{
-			"images":          []interface{}{8, 0},
+			"images":          []interface{}{8, 0}, // image from VAEDecode (node 8)
 			"filename_prefix": generateFilenamePrefix(),
 		},
-	}
-
-	// Add LoRA if specified
-	if opts.Lora != "" {
-		workflow[10] = &WorkflowNode{
-			ClassType: "LoraLoader",
-			Inputs: map[string]interface{}{
-				"lora_name":      opts.Lora,
-				"strength_model":  opts.LoraStrength,
-				"strength_clip":   opts.LoraStrength,
-			},
-		}
-		// Add model and clip inputs to LoraLoader
-		workflow[10].Inputs["model"] = []interface{}{4, 0}
-		workflow[10].Inputs["clip"] = []interface{}{4, 1}
-		// Update KSampler to use Lora output
-		workflow[3].Inputs["model"] = []interface{}{10, 0}
-		// Update CLIP encoders to use Lora output
-		workflow[6].Inputs["clip"] = []interface{}{10, 1}
-		workflow[7].Inputs["clip"] = []interface{}{10, 1}
 	}
 
 	return &workflow
