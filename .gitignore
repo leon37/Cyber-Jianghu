@@ -1,0 +1,53 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+server/server
+server/server.exe
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Dependencies
+vendor/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Generated files
+server/proto/*.pb.go
+models/lora/*.safetensors
+models/sovits/*.ckpt
+models/embedding/*.bin
+
+# Cache
+cache/
+tmp/
+temp/
