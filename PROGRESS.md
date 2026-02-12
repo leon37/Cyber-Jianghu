@@ -377,15 +377,101 @@ type CacheEntry struct {
 
 ---
 
-## Phase 5: 语音合成 ⏸️ 待开始
+## Phase 5: 语音合成 ✅ 已完成
+
+### 已完成任务
+- [x] GPT-SoVITS API 客户端 (`internal/generators/sovits_client.go`)
+  - [x] 连接到本地 GPT-SoVITS 服务
+  - [x] 文本转语音（TTS）
+  - [x] 音色管理
+  - [x] 异步任务处理
+  - [x] 音色注册
+- [x] 音频格式转换和缓存 (`internal/generators/audio_cache.go`)
+  - [x] 音频格式支持（WAV/MP3）
+  - [x] 音频缓存机制
+  - [x] 缓存键生成（MD5）
+  - [x] LRU 淘汰策略
+  - [x] 时长估算
+- [x] 集成语音生成到剧情引擎
+  - [x] 从 StoryResponse 提取文本
+  - [x] 调用 TTS 生成音频
+  - [x] 音频缓存检查
+  - [x] 默认音色设置
+  - [x] 音色列表查询
 
 ### 待完成任务
-- [ ] GPT-SoVITS 本地部署
+- [ ] GPT-SoVITS 本地部署文档
 - [ ] 训练数据准备（说书人音色）
-- [ ] 音色模型训练
-- [ ] GPT-SoVITS API 客户端 (`internal/generators/sovits_client.go`)
-- [ ] 音频格式转换
-- [ ] 音频缓存机制
+- [ ] 音色模型训练指南
+- [ ] 音频播放 API 端点
+- [ ] 语音生成与图像同步
+
+### 已创建文件
+```
+server/internal/
+└── generators/
+    ├── sovits_client.go           # GPT-SoVITS API 客户端
+    └── audio_cache.go             # 音频缓存机制
+```
+
+### 核心数据结构
+
+**VoiceModel** - 音色模型
+```go
+type VoiceModel struct {
+    ID          string                 // 唯一 ID
+    Name        string                 // 名称
+    Gender      string                 // 性别
+    Language    string                 // 语言
+    Style       string                 // 风格
+    Description string                 // 描述
+    Enabled     bool                   // 是否启用
+}
+```
+
+**AudioCacheEntry** - 音频缓存条目
+```go
+type AudioCacheEntry struct {
+    Key           string                 // 缓存键
+    FilePath      string                 // 文件路径
+    AudioData     []byte                 // 音频数据
+    Text          string                 // 原始文本
+    VoiceID       string                 // 音色 ID
+    Duration      float64                // 时长（秒）
+    Format        string                 // 格式（wav, mp3）
+    SampleRate    int                    // 采样率
+    CreatedAt     time.Time              // 创建时间
+    LastAccessed  time.Time              // 最后访问时间
+    Hits         int                    // 命中次数
+}
+```
+
+### 语音生成流程
+
+```
+1. 收到故事文本
+    ↓
+2. 生成缓存键（MD5 of Text + VoiceID + Options）
+    ↓
+3. 检查缓存
+    ├─ 命中 → 返回缓存的音频
+    └─ 未命中 → 继续
+    ↓
+4. 调用 GPT-SoVITS TTS
+    ↓
+5. 接收音频数据（WAV/MP3）
+    ↓
+6. 存储到缓存
+    ↓
+7. 返回音频数据
+```
+
+### 音色配置
+
+预置音色：
+- `narrator` - 说书人（默认）
+- `male_youth` - 青年男声
+- `female` - 女声
 
 ---
 

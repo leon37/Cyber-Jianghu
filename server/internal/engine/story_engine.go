@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"Cyber-Jianghu/server/internal/generators"
 	"Cyber-Jianghu/server/internal/interfaces"
 	"Cyber-Jianghu/server/internal/prompts"
 	"Cyber-Jianghu/server/internal/rag"
@@ -52,23 +53,31 @@ type StoryEngine struct {
 	embedService  *EmbeddingService
 	memoryStore   *rag.MemoryStore
 	promptEngine *prompts.TemplateEngine
+	audioClient   *generators.GPTSoVITSClient
+	audioCache    *generators.AudioCache
+	voiceRegistry *generators.VoiceRegistry
 
 	state        map[string]*StoryState
 	mu           sync.RWMutex
 
 	storyModel   string // GLM-5 model for story generation
 	imageModel   string // Model for image prompt generation
+	defaultVoiceID string
 }
 
 // NewStoryEngine creates a new story engine
 func NewStoryEngine(
 	apiKey string,
 	qdrantClient *rag.QdrantClient,
+	audioCacheDir string,
 ) *StoryEngine {
 	glm5Client := NewGLM5Client(apiKey)
 	embedService := NewEmbeddingService(apiKey)
 	memoryStore := rag.NewMemoryStore(qdrantClient, embedService)
 	promptEngine := prompts.NewTemplateEngine()
+	audioClient := generators.NewGPTSoVITSClient()
+	audioCache := generators.NewAudioCache(audioCacheDir, 500, 24*time.Hour)
+	voiceRegistry := generators.NewVoiceRegistry("")
 
 	// Initialize default templates
 	_ = promptEngine.InitializeDefaultTemplates()
@@ -78,9 +87,13 @@ func NewStoryEngine(
 		embedService:  embedService,
 		memoryStore:   memoryStore,
 		promptEngine: promptEngine,
+		audioClient:   audioClient,
+		audioCache:    audioCache,
+		voiceRegistry: voiceRegistry,
 		state:        make(map[string]*StoryState),
 		storyModel:   "glm-4",
 		imageModel:   "embedding-3",
+		defaultVoiceID: "narrator",
 	}
 }
 
@@ -478,4 +491,56 @@ func buildDecisionTexts(decisions []*rag.DecisionMemory) []string {
 		texts[i] = fmt.Sprintf("[决策] %s: %s", dec.OptionID, dec.ChoiceText)
 	}
 	return texts
+}
+
+// GenerateAudio generates audio for story text
+func (e *StoryEngine) GenerateAudio(ctx context.Context, text string, voiceID string) ([]byte, error) {
+	// Use default voice if not specified
+	if voiceID == "" {
+		voiceID = e.defaultVoiceID
+	}
+
+	// Generate cache key
+	opts := generators.NewTTSOptions()
+	cacheKey := generators.GenerateAudioCacheKey(text, voiceID, opts)
+
+	// Check cache first
+	audioData, err := e.audioCache.Get(ctx, cacheKey)
+	if err == nil {
+		// Cache hit
+		return audioData, nil
+	}
+
+	// Cache miss - generate new audio
+	audioData, err = e.audioClient.SynthesizeWithOptions(ctx, text, voiceID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate audio: %w", err)
+	}
+
+	// Store in cache (async to avoid blocking)
+	go func() {
+		duration := generators.EstimateAudioDuration(int64(len(audioData)), "wav", 24000)
+		_ = e.audioCache.Put(context.Background(), cacheKey, audioData, text, voiceID, opts, "wav", duration)
+	}()
+
+	return audioData, nil
+}
+
+// SetDefaultVoice sets the default voice ID for TTS
+func (e *StoryEngine) SetDefaultVoice(voiceID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Verify voice exists
+	if _, err := e.voiceRegistry.GetVoice(voiceID); err != nil {
+		return fmt.Errorf("voice not found: %s", voiceID)
+	}
+
+	e.defaultVoiceID = voiceID
+	return nil
+}
+
+// GetAvailableVoices returns list of available voices
+func (e *StoryEngine) GetAvailableVoices() []*generators.VoiceModel {
+	return e.voiceRegistry.ListVoices()
 }
