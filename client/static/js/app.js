@@ -65,7 +65,12 @@ class CyberJianghu {
         if (mode === 'demo') {
             document.getElementById('demo-form').style.display = 'none';
             document.getElementById('connect-form').style.display = 'none';
-            this.startDemoMode();
+            // Only start demo mode if story hasn't been created yet
+            if (!this.storyCreated) {
+                this.startDemoMode();
+            } else {
+                this.log('演示模式：故事已存在，无需重新创建', 'info');
+            }
         } else {
             document.getElementById('demo-form').style.display = 'none';
             document.getElementById('connect-form').style.display = 'flex';
