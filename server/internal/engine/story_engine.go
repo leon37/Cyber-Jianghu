@@ -626,6 +626,14 @@ func (e *StoryEngine) SetDefaultVoice(voiceID string) error {
 	return nil
 }
 
+// GetDefaultVoice returns the default voice
+func (e *StoryEngine) GetDefaultVoice() (*generators.VoiceModel, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.voiceRegistry.GetVoice(e.defaultVoiceID)
+}
+
 // GetAvailableVoices returns list of available voices
 func (e *StoryEngine) GetAvailableVoices() []*generators.VoiceModel {
 	return e.voiceRegistry.ListVoices()

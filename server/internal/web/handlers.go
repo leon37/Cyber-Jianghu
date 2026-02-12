@@ -15,6 +15,7 @@ import (
 
 	"Cyber-Jianghu/server/internal/config"
 	"Cyber-Jianghu/server/internal/engine"
+	"Cyber-Jianghu/server/internal/generators"
 	"Cyber-Jianghu/server/internal/storage"
 )
 
@@ -104,8 +105,18 @@ func NewRouter(cfg *config.Config, storyEngine interface{}, redis interface{}) *
 
 	// Type assertion for story engine
 	var storyHandlers *StoryHandlers
+	var comfyClient *generators.ComfyUIClient
+
 	if storyEngine != nil {
-		storyHandlers = NewStoryHandlers(storyEngine.(*engine.StoryEngine))
+		// Create ComfyUI client
+		comfyClient = generators.NewComfyUIClient()
+
+		// Get cache directory
+		baseDir, _ := filepath.Abs(filepath.Join(os.Getenv("USERPROFILE"), "cyber-jianghu"))
+		imageCacheDir := filepath.Join(baseDir, "image_cache")
+		_ = os.MkdirAll(imageCacheDir, 0755)
+
+		storyHandlers = NewStoryHandlers(storyEngine.(*engine.StoryEngine), comfyClient, imageCacheDir)
 	}
 
 	// Static file server for client assets
@@ -129,6 +140,13 @@ func NewRouter(cfg *config.Config, storyEngine interface{}, redis interface{}) *
 				r.Post("/select", storyHandlers.SelectOption)
 				r.Get("/{story_id}", storyHandlers.GetStoryStatus)
 			})
+			// Audio endpoints
+			r.Post("/audio/generate", storyHandlers.GenerateAudio)
+			// Image endpoints
+			r.Post("/image/generate", storyHandlers.GenerateImage)
+			// Voice endpoints
+			r.Get("/voice/list", storyHandlers.GetVoices)
+			r.Post("/voice/default", storyHandlers.SetDefaultVoice)
 		}
 
 		// Live endpoints (Phase 2 - completed)

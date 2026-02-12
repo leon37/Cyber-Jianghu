@@ -121,8 +121,12 @@ class CyberJianghu {
         if (data.story) {
             // Store the story ID from the response
             this.currentStoryId = data.story.id || 'demo_story';
-            this.updateStory(data.story.text || data.story.content);
+            const text = data.story.text || data.story.content;
+            this.updateStory(text);
             this.updateOptions(data.story.options || []);
+
+            // Request and play audio for the story text
+            this.playStoryAudio(text);
         }
     }
 
@@ -400,6 +404,52 @@ class CyberJianghu {
                 this.log(`音频播放失败: ${error.message}`, 'error');
             });
         }
+    }
+
+    async playStoryAudio(text) {
+        // Limit text length to avoid long generation times
+        const maxTextLength = 200;
+        const textToSpeak = text.length > maxTextLength ? text.substring(0, maxTextLength) + '...' : text;
+
+        try {
+            const response = await fetch('/api/v1/audio/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    text: textToSpeak,
+                    voice_id: 'narrator'
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.success && data.audio_base64) {
+                this.playAudioFromBase64(data.audio_base64);
+                this.log('音频已生成并播放', 'success');
+            }
+        } catch (error) {
+            // Audio generation is optional, don't show error to user
+            console.warn(`音频生成失败: ${error.message}`);
+        }
+    }
+
+    playAudioFromBase64(base64Data) {
+        const audio = document.getElementById('audio-player');
+        // Determine format from base64 data URI prefix or default to wav
+        let audioSrc = base64Data;
+        if (!base64Data.startsWith('data:audio')) {
+            audioSrc = `data:audio/wav;base64,${base64Data}`;
+        }
+
+        audio.src = audioSrc;
+        audio.play().catch(error => {
+            console.warn(`音频播放失败: ${error.message}`);
+        });
     }
 
     async handleConnect() {

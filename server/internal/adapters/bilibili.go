@@ -26,6 +26,13 @@ type BilibiliAdapter struct {
 	cancel        context.CancelFunc
 	heartbeatDone chan struct{}
 	parser        *DanmakuParser
+
+	// Phase 7: Deduplication and filtering
+	recentDanmaku map[string]int64 // Map content -> timestamp
+	dedupWindow   int64           // Time window for deduplication (seconds)
+	filterKeywords []string         // Keywords to filter
+	lastDedupTime int64           // Last dedup cleanup time
+	dedupMu       sync.RWMutex    // Mutex for deduplication
 }
 
 // Bilibili message protocol constants
@@ -62,7 +69,10 @@ type bilibiliAuthResponse struct {
 // NewBilibiliAdapter creates a new Bilibili live adapter
 func NewBilibiliAdapter() *BilibiliAdapter {
 	return &BilibiliAdapter{
-		danmakuChan: make(chan interfaces.Danmaku, 1000),
+		danmakuChan:   make(chan interfaces.Danmaku, 1000),
+		recentDanmaku: make(map[string]int64, 5000),
+		dedupWindow:   60, // 60 seconds dedup window
+		filterKeywords: []string{}, // Can be configured
 	}
 }
 
@@ -287,7 +297,7 @@ func (b *BilibiliAdapter) parseDanmaku(body []byte) {
 						}
 					}
 
-					if danmakuText != "" {
+					if danmakuText != "" && b.shouldSendDanmaku(danmakuText) {
 						danmaku := interfaces.Danmaku{
 							Username:  username,
 							UserID:    uid,
@@ -297,6 +307,9 @@ func (b *BilibiliAdapter) parseDanmaku(body []byte) {
 							IsAdmin:   false,
 							GiftValue: 0,
 						}
+
+						// Record danmaku for deduplication
+						b.recordDanmaku(danmakuText)
 
 						select {
 						case b.danmakuChan <- danmaku:
@@ -308,6 +321,74 @@ func (b *BilibiliAdapter) parseDanmaku(body []byte) {
 			}
 		}
 	}
+}
+
+// shouldSendDanmaku checks if danmaku should be sent (deduplication + filtering)
+func (b *BilibiliAdapter) shouldSendDanmaku(text string) bool {
+	b.dedupMu.Lock()
+	defer b.dedupMu.Unlock()
+
+	// Clean up old entries periodically
+	now := time.Now().Unix()
+	if now-b.lastDedupTime > 300 { // Every 5 minutes
+		b.cleanupOldDanmaku(now)
+		b.lastDedupTime = now
+	}
+
+	// Check for duplicates
+	if lastSeen, exists := b.recentDanmaku[text]; exists {
+		if now-lastSeen < b.dedupWindow {
+			return false // Duplicate within window
+		}
+	}
+
+	// Check for filtered keywords
+	for _, keyword := range b.filterKeywords {
+		if contains(text, keyword) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// recordDanmaku records a danmaku for deduplication
+func (b *BilibiliAdapter) recordDanmaku(text string) {
+	b.dedupMu.Lock()
+	defer b.dedupMu.Unlock()
+
+	b.recentDanmaku[text] = time.Now().Unix()
+}
+
+// cleanupOldDanmaku removes old danmaku entries
+func (b *BilibiliAdapter) cleanupOldDanmaku(now int64) {
+	for text, timestamp := range b.recentDanmaku {
+		if now-timestamp > b.dedupWindow {
+			delete(b.recentDanmaku, text)
+		}
+	}
+}
+
+// SetFilterKeywords sets keywords to filter
+func (b *BilibiliAdapter) SetFilterKeywords(keywords []string) {
+	b.dedupMu.Lock()
+	defer b.dedupMu.Unlock()
+	b.filterKeywords = keywords
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && findSubstring(s, substr) >= 0
+}
+
+// findSubstring finds the index of a substring
+func findSubstring(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
 
 // heartbeat sends periodic heartbeat messages
