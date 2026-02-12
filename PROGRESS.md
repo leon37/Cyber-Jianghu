@@ -114,14 +114,18 @@ AI 原生互动直播游戏，核心玩法是观众弹幕指令驱动剧情发�
 
 ---
 
-## Phase 10: 基础设施部署 ⏳️ 待开始
+## Phase 10: 基础设施部署 🚧 进行中
+
+### Phase 10.1 - ComfyUI 部署 🚧 进行中
+- [x] 编写 Docker Compose 部署文件
+- [x] 编写 Dockerfile
+- [x] 编写部署指南文档（DEPLOYMENT.md）
+- [x] 编写环境变量示例（.env.example）
+- [ ] 启动 Docker 服务并测试
+- [ ] 验证 ComfyUI API 连接
+- [ ] 测试图像生成流程
 
 ### 本地 AI 模型部署
-- [ ] ComfyUI + SDXL Turbo 本地部署
-  - [ ] 编写 Docker Compose 部署文件
-  - [ ] 编写 ComfyUI 工作流配置文件
-  - [ ] 模型下载和放置指南
-  - [ ] 启动脚本和环境配置
 - [ ] GPT-SoVITS 本地部署
   - [ ] 编写本地部署指南
   - [ ] 模型下载和放置

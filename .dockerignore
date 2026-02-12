@@ -1,0 +1,44 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+PROGRESS.md
+*.md
+
+# Development
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode
+.idea
+*.sublime-*
+
+# Build
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Dependencies
+vendor/
+
+# Cache
+data/
+*.cache
+
+# Config (contains secrets)
+.env.local
+.env.*.local
+config.local.yaml
+
+# Logs
+*.log
+logs/
