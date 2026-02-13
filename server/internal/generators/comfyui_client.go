@@ -330,18 +330,17 @@ func (c *ComfyUIClient) pollForResult(ctx context.Context, promptID string) (*Ge
 	return nil, fmt.Errorf("timeout waiting for image generation")
 }
 
-// buildSDXLWorkflow builds a workflow for SDXL based on working template
-// Uses node IDs 4, 5, 6, 7, 8, 9 to match the template structure
+// buildSDXLWorkflow builds a workflow for SDXL based on user's template
 func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 	// Apply defaults
 	if opts.Width == 0 {
-		opts.Width = 512 // Use smaller size for faster generation
+		opts.Width = 512
 	}
 	if opts.Height == 0 {
 		opts.Height = 512
 	}
 	if opts.Steps == 0 {
-		opts.Steps = 20 // Standard steps for SDXL
+		opts.Steps = 20
 	}
 	if opts.CFGScale == 0 {
 		opts.CFGScale = 7.0
@@ -372,7 +371,7 @@ func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 	// Node 7: CLIPTextEncode - negative prompt
 	negativePrompt := opts.NegativePrompt
 	if negativePrompt == "" {
-		negativePrompt = "text, watermark, low quality"
+		negativePrompt = "text, watermark"
 	}
 	workflow[7] = &WorkflowNode{
 		ClassType: "CLIPTextEncode",
@@ -403,17 +402,17 @@ func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 			"scheduler":    opts.Scheduler,
 			"denoise":      1,
 			"model":        []interface{}{4, 0}, // MODEL from CheckpointLoaderSimple (node 4, slot 0)
-			"positive":     []interface{}{6, 0}, // positive from CLIPTextEncode (node 6)
-			"negative":     []interface{}{7, 0}, // negative from CLIPTextEncode (node 7)
-			"latent_image": []interface{}{5, 0}, // latent from EmptyLatentImage (node 5)
+			"positive":     []interface{}{6, 0}, // positive from CLIPTextEncode (node 6, slot 0)
+			"negative":     []interface{}{7, 0}, // negative from CLIPTextEncode (node 7, slot 0)
+			"latent_image": []interface{}{5, 0}, // latent from EmptyLatentImage (node 5, slot 0)
 		},
 	}
 
-	// Node 8: VAEDecode
+	// Node 8: VAEDecode - uses VAE (node 4, slot 2)
 	workflow[8] = &WorkflowNode{
 		ClassType: "VAEDecode",
 		Inputs: map[string]interface{}{
-			"samples": []interface{}{3, 0}, // samples from KSampler (node 3)
+			"samples": []interface{}{3, 0}, // samples from KSampler (node 3, slot 0)
 			"vae":      []interface{}{4, 2}, // VAE from CheckpointLoaderSimple (node 4, slot 2)
 		},
 	}
@@ -422,7 +421,7 @@ func (c *ComfyUIClient) buildSDXLWorkflow(opts *GenerateOptions) *Workflow {
 	workflow[9] = &WorkflowNode{
 		ClassType: "SaveImage",
 		Inputs: map[string]interface{}{
-			"images":          []interface{}{8, 0}, // image from VAEDecode (node 8)
+			"images":          []interface{}{8, 0}, // image from VAEDecode (node 8, slot 0)
 			"filename_prefix": generateFilenamePrefix(),
 		},
 	}
